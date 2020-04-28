@@ -43,6 +43,8 @@
 #include "hostent.h"
 #include "resolv_private.h"
 
+#include "gethostsfile.h"
+
 constexpr int MAXALIASES = 35;
 constexpr int MAXADDRS = 35;
 
@@ -51,7 +53,7 @@ constexpr int MAXADDRS = 35;
 
 static void sethostent_r(FILE** hf) {
     if (!*hf)
-        *hf = fopen(_PATH_HOSTS, "re");
+        *hf = fopen(gethostsfile(), "re");
     else
         rewind(*hf);
 }

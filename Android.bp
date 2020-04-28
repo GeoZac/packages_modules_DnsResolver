@@ -97,6 +97,7 @@ cc_library {
     srcs: [
         "getaddrinfo.cpp",
         "gethnamaddr.cpp",
+        "gethostsfile.cpp",
         "sethostent.cpp",
         "res_cache.cpp",
         "res_comp.cpp",

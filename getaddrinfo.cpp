@@ -67,6 +67,8 @@
 #include "resolv_private.h"
 #include "util.h"
 
+#include "gethostsfile.h"
+
 #define ANY 0
 
 using android::net::NetworkDnsEventReported;
@@ -1472,7 +1474,7 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
 static void _sethtent(FILE** hostf) {
     if (!*hostf)
-        *hostf = fopen(_PATH_HOSTS, "re");
+        *hostf = fopen(gethostsfile(), "re");
     else
         rewind(*hostf);
 }
@@ -1495,7 +1497,7 @@ static struct addrinfo* _gethtent(FILE** hostf, const char* name, const struct a
     assert(name != NULL);
     assert(pai != NULL);
 
-    if (!*hostf && !(*hostf = fopen(_PATH_HOSTS, "re"))) return (NULL);
+    if (!*hostf && !(*hostf = fopen(gethostsfile(), "re"))) return (NULL);
 again:
     if (!(p = fgets(hostbuf, sizeof hostbuf, *hostf))) return (NULL);
     if (*p == '#') goto again;
