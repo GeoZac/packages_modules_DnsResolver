@@ -418,7 +418,7 @@ static bool isNetworkRestricted(int terrno) {
     return (terrno == EPERM);
 }
 
-int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
+int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
               uint32_t flags, std::chrono::milliseconds sleepTimeMs) {
     LOG(DEBUG) << __func__;
 
@@ -481,6 +481,22 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
             return -ETIMEDOUT;
         }
+    }
+
+    // Workaround for VPNs without nameservers, for which DNS traffic should
+    // be spilled on to the default network (b/159994981).
+    //
+    // Normally, the resolver talks on the network using the same uid as the
+    // client app (see resolv_tag_socket()). But in this case it would fail
+    // should perhaps mention the problem is ingress vpn isolation not egress.
+    // So instead we use the privileged uid AID_DNS to keep this case working
+    // like it did in Q (where 100% of DNS traffic was being sent as AID_DNS).
+    //
+    // Here, we assume that app_netid != dns_netid means there's a VPN.
+    // If we guess wrong, we lose the power-saving benefits of blocking
+    // egress DNS traffic when network access is disabled.
+    if (!resolv_has_nameservers(statp->netcontext.app_netid)) {
+        statp->enforce_dns_uid = true;
     }
 
     res_stats stats[MAXNS]{};

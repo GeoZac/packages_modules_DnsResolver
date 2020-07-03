@@ -99,6 +99,9 @@ struct ResState {
 
     int nameserverCount() { return nsaddrs.size(); }
 
+    // TODO: remove all fields copied from netconfig: netid, uid, pid, _mark, netcontext_flags
+    android_net_context netcontext;
+
     // clang-format off
     unsigned netid;                             // NetId: cache key and socket mark
     uid_t uid;                                  // uid of the app that sent the DNS lookup

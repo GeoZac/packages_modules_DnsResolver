@@ -95,9 +95,11 @@
 
 void res_init(ResState* statp, const struct android_net_context* _Nonnull netcontext,
               android::net::NetworkDnsEventReported* _Nonnull event) {
+    statp->netcontext = *netcontext;
     statp->netid = netcontext->dns_netid;
     statp->uid = netcontext->uid;
     statp->pid = netcontext->pid;
+
     statp->id = arc4random_uniform(65536);
 
     for (auto& sock : statp->nssocks) {
@@ -113,6 +115,7 @@ void res_init(ResState* statp, const struct android_net_context* _Nonnull netcon
 // TODO: Have some proper constructors for ResState instead of this method and res_init().
 ResState fromResState(const ResState& other, android::net::NetworkDnsEventReported* event) {
     ResState resOutput;
+    resOutput.netcontext = other.netcontext;
     resOutput.netid = other.netid;
     resOutput.uid = other.uid;
     resOutput.pid = other.pid;
