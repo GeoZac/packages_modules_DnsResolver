@@ -68,6 +68,7 @@
 #include "util.h"
 
 #include "gethostsfile.h"
+#include "hosts_cache.h"
 
 #define ANY 0
 
@@ -1561,6 +1562,13 @@ static bool files_getaddrinfo(const size_t netid, const char* name, const addrin
     FILE* hostf = nullptr;
 
     cur = &sentinel;
+
+    int hc_error = hc_getaddrinfo(name, pai, &cur);
+    if (hc_error != EAI_SYSTEM) {
+        *res = sentinel.ai_next;
+        return sentinel.ai_next != NULL;
+    }
+
     _sethtent(&hostf);
     while ((p = _gethtent(&hostf, name, pai)) != nullptr) {
         cur->ai_next = p;
