@@ -38,6 +38,8 @@
 #include "hostent.h"
 #include "resolv_private.h"
 
+#include "gethostsfile.h"
+
 constexpr int MAXALIASES = 35;
 constexpr int MAXADDRS = 35;
 
@@ -71,6 +73,7 @@ struct hcfile
     int             h_fd;
     struct stat     h_st;
     char*           h_data;
+    const char*     h_path;
 
     uint32_t        c_alloc;
     uint32_t        c_len;
@@ -223,8 +226,10 @@ static int _hcfilemmap(void)
     char *h_addr;
     const char *p, *pend;
     uint32_t c_alloc;
+    const char *h_path;
 
-    h_fd = open(_PATH_HOSTS, O_CLOEXEC);
+    h_path = gethostsfile();
+    h_fd = open(h_path, O_CLOEXEC);
     if (h_fd < 0)
         return -1;
     if (flock(h_fd, LOCK_EX) != 0) {
@@ -235,7 +240,8 @@ static int _hcfilemmap(void)
     if (hcfile.h_data) {
         memset(&st, 0, sizeof(st));
         if (fstat(h_fd, &st) == 0) {
-            if (st.st_size == hcfile.h_st.st_size &&
+            if (strcmp(h_path, hcfile.h_path) == 0 &&
+                st.st_size == hcfile.h_st.st_size &&
                 st.st_mtime == hcfile.h_st.st_mtime) {
                 flock(h_fd, LOCK_UN);
                 close(h_fd);
@@ -263,6 +269,7 @@ static int _hcfilemmap(void)
     hcfile.h_fd = h_fd;
     hcfile.h_st = st;
     hcfile.h_data = h_addr;
+    hcfile.h_path = h_path;
 
     c_alloc = 0;
     /*
