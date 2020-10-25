@@ -965,90 +965,94 @@ void DnsProxyListener::ResNSendHandler::run() {
 
     // Decode
     std::vector<uint8_t> msg(MAXPACKET, 0);
+    do {
+        // Max length of mMsg is less than 1024 since the CMD_BUF_SIZE in FrameworkListener is 1024
+        int msgLen = b64_pton(mMsg.c_str(), msg.data(), MAXPACKET);
+        if (msgLen == -1) {
+            // Decode fail
+            sendBE32(mClient, -EILSEQ);
+            break;
+        }
 
-    // Max length of mMsg is less than 1024 since the CMD_BUF_SIZE in FrameworkListener is 1024
-    int msgLen = b64_pton(mMsg.c_str(), msg.data(), MAXPACKET);
-    if (msgLen == -1) {
-        // Decode fail
-        sendBE32(mClient, -EILSEQ);
-        return;
-    }
+        const uid_t uid = mClient->getUid();
+        int rr_type = 0;
+        std::string rr_name;
+        uint16_t original_query_id = 0;
 
-    const uid_t uid = mClient->getUid();
-    int rr_type = 0;
-    std::string rr_name;
-    uint16_t original_query_id = 0;
+        // TODO: Handle the case which is msg contains more than one query
+        if (!parseQuery(msg.data(), msgLen, &original_query_id, &rr_type, &rr_name) ||
+            !setQueryId(msg.data(), msgLen, arc4random_uniform(65536))) {
+            // If the query couldn't be parsed, block the request.
+            LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid << ", invalid query";
+            sendBE32(mClient, -EINVAL);
+            break;
+        }
 
-    // TODO: Handle the case which is msg contains more than one query
-    if (!parseQuery(msg.data(), msgLen, &original_query_id, &rr_type, &rr_name) ||
-        !setQueryId(msg.data(), msgLen, arc4random_uniform(65536))) {
-        // If the query couldn't be parsed, block the request.
-        LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid << ", invalid query";
-        sendBE32(mClient, -EINVAL);
-        return;
-    }
-
-    // Send DNS query
-    std::vector<uint8_t> ansBuf(MAXPACKET, 0);
-    int rcode = ns_r_noerror;
-    int nsendAns = -1;
-    NetworkDnsEventReported event;
-    initDnsEvent(&event, mNetContext);
-    if (queryLimiter.start(uid)) {
-        if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
-            nsendAns = resolv_res_nsend(&mNetContext, msg.data(), msgLen, ansBuf.data(), MAXPACKET,
-                                        &rcode, static_cast<ResNsendFlags>(mFlags), &event);
+        // Send DNS query
+        std::vector<uint8_t> ansBuf(MAXPACKET, 0);
+        int rcode = ns_r_noerror;
+        int nsendAns = -1;
+        NetworkDnsEventReported event;
+        initDnsEvent(&event, mNetContext);
+        if (queryLimiter.start(uid)) {
+            if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
+                nsendAns =
+                        resolv_res_nsend(&mNetContext, msg.data(), msgLen, ansBuf.data(), MAXPACKET,
+                                         &rcode, static_cast<ResNsendFlags>(mFlags), &event);
+            } else {
+                nsendAns = -EAI_SYSTEM;
+            }
+            queryLimiter.finish(uid);
         } else {
-            nsendAns = -EAI_SYSTEM;
+            LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid
+                         << ", max concurrent queries reached";
+            nsendAns = -EBUSY;
         }
-        queryLimiter.finish(uid);
-    } else {
-        LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid
-                     << ", max concurrent queries reached";
-        nsendAns = -EBUSY;
-    }
 
-    const int32_t latencyUs = saturate_cast<int32_t>(s.timeTakenUs());
-    event.set_latency_micros(latencyUs);
-    event.set_event_type(EVENT_RES_NSEND);
-    event.set_res_nsend_flags(static_cast<ResNsendFlags>(mFlags));
+        const int32_t latencyUs = saturate_cast<int32_t>(s.timeTakenUs());
+        event.set_latency_micros(latencyUs);
+        event.set_event_type(EVENT_RES_NSEND);
+        event.set_res_nsend_flags(static_cast<ResNsendFlags>(mFlags));
 
-    // Fail, send -errno
-    if (nsendAns < 0) {
-        if (!sendBE32(mClient, nsendAns)) {
-            PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send errno to uid " << uid
+        // Fail, send -errno
+        if (nsendAns < 0) {
+            if (!sendBE32(mClient, nsendAns)) {
+                PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send errno to uid "
+                              << uid << " pid " << mClient->getPid();
+            }
+            if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
+                reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
+                               resNSendToAiError(nsendAns, rcode), event, rr_name);
+            }
+            break;
+        }
+
+        // Send rcode
+        if (!sendBE32(mClient, rcode)) {
+            PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send rcode to uid " << uid
                           << " pid " << mClient->getPid();
+            break;
         }
+
+        // Restore query id and send answer
+        if (!setQueryId(ansBuf.data(), nsendAns, original_query_id) ||
+            !sendLenAndData(mClient, nsendAns, ansBuf.data())) {
+            PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send answer to uid " << uid
+                          << " pid " << mClient->getPid();
+            break;
+        }
+
         if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
+            std::vector<std::string> ip_addrs;
+            const int total_ip_addr_count =
+                    extractResNsendAnswers((uint8_t*)ansBuf.data(), nsendAns, rr_type, &ip_addrs);
             reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
-                           resNSendToAiError(nsendAns, rcode), event, rr_name);
+                           resNSendToAiError(nsendAns, rcode), event, rr_name, ip_addrs,
+                           total_ip_addr_count);
         }
-        return;
-    }
+    } while (0);
 
-    // Send rcode
-    if (!sendBE32(mClient, rcode)) {
-        PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send rcode to uid " << uid
-                      << " pid " << mClient->getPid();
-        return;
-    }
-
-    // Restore query id and send answer
-    if (!setQueryId(ansBuf.data(), nsendAns, original_query_id) ||
-        !sendLenAndData(mClient, nsendAns, ansBuf.data())) {
-        PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send answer to uid " << uid
-                      << " pid " << mClient->getPid();
-        return;
-    }
-
-    if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
-        std::vector<std::string> ip_addrs;
-        const int total_ip_addr_count =
-                extractResNsendAnswers((uint8_t*) ansBuf.data(), nsendAns, rr_type, &ip_addrs);
-        reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
-                       resNSendToAiError(nsendAns, rcode), event, rr_name, ip_addrs,
-                       total_ip_addr_count);
-    }
+    mClient->decRef();
 }
 
 std::string DnsProxyListener::ResNSendHandler::threadName() {
