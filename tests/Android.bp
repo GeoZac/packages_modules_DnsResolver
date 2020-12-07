@@ -93,7 +93,7 @@ cc_test {
         "libssl",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-unstable-ndk_platform",
+        "dnsresolver_aidl_interface-ndk_platform",
         "golddata_proto",
         "libgmock",
         "libnetd_resolv",
@@ -102,7 +102,7 @@ cc_test {
         "libnetdutils",
         "libprotobuf-cpp-lite",
         "netd_aidl_interface-ndk_platform",
-        "netd_event_listener_interface-unstable-ndk_platform",
+        "netd_event_listener_interface-ndk_platform",
         "server_configurable_flags",
         "stats_proto",
     ],
@@ -129,13 +129,13 @@ cc_test {
         "libnetd_client",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-unstable-ndk_platform",
+        "dnsresolver_aidl_interface-ndk_platform",
         "libgmock",
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libutils",
-        "netd_event_listener_interface-unstable-ndk_platform",
+        "netd_event_listener_interface-ndk_platform",
         "netd_aidl_interface-ndk_platform",
     ],
 }
@@ -164,7 +164,7 @@ cc_test {
         "libnetd_client",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-unstable-ndk_platform",
+        "dnsresolver_aidl_interface-ndk_platform",
         "libbpf_android",
         "libcrypto_static",
         "libgmock",
@@ -175,7 +175,7 @@ cc_test {
         "libssl",
         "libutils",
         "netd_aidl_interface-ndk_platform",
-        "netd_event_listener_interface-unstable-ndk_platform",
+        "netd_event_listener_interface-ndk_platform",
         "libipchecksum",
     ],
     // This test talks to the DnsResolver module over a binary protocol on a socket, so keep it as
